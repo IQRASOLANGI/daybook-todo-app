@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Daybook | To-Do List</title>
+  <meta name="description" content="A fast, keyboard-friendly to-do list with priorities, due dates and categories. Works offline and saves to your browser.">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#2748d8">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
+  <script>
+    /* Apply the saved theme before first paint to avoid a flash. */
+    try {
+      var saved = localStorage.getItem("daybook.theme");
+      if (saved === "light" || saved === "dark") document.documentElement.dataset.theme = saved;
+    } catch (e) {}
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script src="core.js" defer></script>
+  <script src="script.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#task-input">Skip to input</a>
+
+  <div class="app">
+    <header class="masthead">
+      <div>
+        <h1 class="brand">Daybook</h1>
+        <p class="tagline">What needs doing today?</p>
+      </div>
+      <div class="masthead__actions">
+        <button class="btn" type="button" id="help-btn" aria-haspopup="dialog">Shortcuts</button>
+        <button class="btn" type="button" id="theme-btn" aria-label="Change colour theme">Theme: Auto</button>
+      </div>
+    </header>
+
+    <form class="composer" id="task-form" novalidate>
+      <label class="sr-only" for="task-input">New task</label>
+      <input
+        id="task-input"
+        class="composer__input"
+        type="text"
+        placeholder="Write a task and press Enter"
+        maxlength="140"
+        autocomplete="off"
+        aria-describedby="task-error"
+      >
+      <button class="btn btn--primary btn--lg" type="submit">Add Task</button>
+
+      <div class="composer__options">
+        <label class="field">
+          <span class="field__label">Priority</span>
+          <select class="field__control" id="task-priority">
+            <option value="high">High</option>
+            <option value="medium" selected>Medium</option>
+            <option value="low">Low</option>
+          </select>
+        </label>
+        <label class="field">
+          <span class="field__label">Due date</span>
+          <input class="field__control" id="task-due" type="date">
+        </label>
+        <label class="field">
+          <span class="field__label">Category</span>
+          <input
+            class="field__control"
+            id="task-category"
+            type="text"
+            list="category-list"
+            maxlength="20"
+            placeholder="Work, Study, Home"
+            autocomplete="off"
+          >
+        </label>
+      </div>
+
+      <p class="field-error" id="task-error" role="alert" hidden></p>
+    </form>
+    <datalist id="category-list"></datalist>
+
+    <section class="stats" aria-label="Summary">
+      <div class="stat">
+        <p class="stat__value" id="stat-pending">0</p>
+        <p class="stat__label">Pending</p>
+      </div>
+      <div class="stat stat--alert" id="stat-overdue-box">
+        <p class="stat__value" id="stat-overdue">0</p>
+        <p class="stat__label">Overdue</p>
+      </div>
+      <div class="stat">
+        <p class="stat__value" id="stat-today">0</p>
+        <p class="stat__label">Done today</p>
+      </div>
+      <div class="stat">
+        <p class="stat__value" id="stat-percent">0%</p>
+        <p class="stat__label">Complete</p>
+      </div>
+    </section>
+
+    <div class="progress">
+      <div
+        class="progress__track"
+        id="progress"
+        role="progressbar"
+        aria-label="Completion progress"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-valuenow="0"
+      >
+        <div class="progress__fill" id="progress-fill"></div>
+      </div>
+      <p class="progress__label" id="progress-label">No tasks yet</p>
+    </div>
+
+    <section class="toolbar" aria-label="Search, filter and data tools">
+      <label class="field field--grow">
+        <span class="field__label">Search</span>
+        <input class="field__control" id="search" type="search" placeholder="Search tasks (press /)" autocomplete="off">
+      </label>
+      <label class="field">
+        <span class="field__label">Priority</span>
+        <select class="field__control" id="filter-priority">
+          <option value="all">All</option>
+          <option value="high">High</option>
+          <option value="medium">Medium</option>
+          <option value="low">Low</option>
+        </select>
+      </label>
+      <label class="field">
+        <span class="field__label">Category</span>
+        <select class="field__control" id="filter-category">
+          <option value="all">All</option>
+        </select>
+      </label>
+      <label class="field">
+        <span class="field__label">Sort pending</span>
+        <select class="field__control" id="sort">
+          <option value="newest">Newest first</option>
+          <option value="due">Due date</option>
+          <option value="priority">Priority</option>
+        </select>
+      </label>
+      <button class="btn toolbar__reset" type="button" id="reset-filters" hidden>Clear filters</button>
+    </section>
+
+    <main class="board">
+      <section class="column column--pending" aria-labelledby="pending-title">
+        <header class="column__head">
+          <h2 class="column__title" id="pending-title">Pending Tasks</h2>
+          <p class="count" id="pending-count">0 pending</p>
+        </header>
+        <ul class="list" id="pending-list"></ul>
+        <div class="empty" id="pending-empty">
+          <p class="empty__title">Nothing pending</p>
+          <p class="empty__hint">Add a task above to get started.</p>
+        </div>
+      </section>
+
+      <section class="column column--done" aria-labelledby="done-title">
+        <header class="column__head">
+          <h2 class="column__title" id="done-title">Completed Tasks</h2>
+          <p class="count" id="done-count">0 completed</p>
+        </header>
+        <ul class="list" id="done-list"></ul>
+        <div class="empty" id="done-empty">
+          <p class="empty__title">Nothing completed yet</p>
+          <p class="empty__hint">Finished tasks will show up here.</p>
+        </div>
+      </section>
+    </main>
+
+    <section class="data-tools" aria-label="Your data">
+      <button class="btn" type="button" id="export-btn">Export JSON</button>
+      <button class="btn" type="button" id="import-btn">Import JSON</button>
+      <button class="btn btn--danger" type="button" id="clear-btn">Clear completed</button>
+      <input class="sr-only" id="import-file" type="file" accept="application/json,.json" tabindex="-1" aria-label="Choose a Daybook JSON file to import">
+    </section>
+
+    <footer class="footer">
+      <p>
+        Built by Iqra Solangi with plain HTML, CSS and JavaScript.
+        <a href="https://github.com/IQRASOLANGI" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <a href="https://www.linkedin.com/in/iqra-solangi-a65945334" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+      </p>
+    </footer>
+  </div>
+
+  <div class="toast" id="toast" hidden>
+    <p class="toast__text" id="toast-text"></p>
+    <button class="toast__undo" type="button" id="toast-undo">Undo</button>
+  </div>
+
+  <dialog class="dialog" id="help" aria-labelledby="help-title">
+    <h2 class="dialog__title" id="help-title">Keyboard shortcuts</h2>
+    <dl class="shortcuts">
+      <div><dt><kbd>N</kbd></dt><dd>Focus the new task field</dd></div>
+      <div><dt><kbd>/</kbd></dt><dd>Search tasks</dd></div>
+      <div><dt><kbd>?</kbd></dt><dd>Open this list</dd></div>
+      <div><dt><kbd>Enter</kbd></dt><dd>Add a task, or save an edit</dd></div>
+      <div><dt><kbd>Esc</kbd></dt><dd>Cancel an edit, clear search, close this list</dd></div>
+    </dl>
+    <form method="dialog">
+      <button class="btn btn--primary" type="submit">Close</button>
+    </form>
+  </dialog>
+
+  <p class="sr-only" id="status" role="status" aria-live="polite"></p>
+</body>
+</html>

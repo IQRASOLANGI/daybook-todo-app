@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Daybook | Tests</title>
+  <style>
+    body { font: 16px/1.5 system-ui, sans-serif; max-width: 44rem; margin: 2rem auto; padding: 0 1rem; color: #12182b; }
+    h1 { margin-bottom: 0.25rem; }
+    #summary { font-weight: 600; margin-bottom: 1rem; }
+    ul { list-style: none; padding: 0; }
+    li { padding: 0.3rem 0.6rem; border-left: 4px solid; margin-bottom: 0.3rem; background: #f6f7fa; }
+    li.pass { border-color: #187a5e; }
+    li.fail { border-color: #b3261e; background: #fdecea; }
+    small { display: block; color: #b3261e; }
+  </style>
+  <script src="core.js"></script>
+</head>
+<body>
+  <h1>Daybook unit tests</h1>
+  <p id="summary">Running…</p>
+  <ul id="results"></ul>
+
+  <script>
+    (function () {
+      const C = window.DaybookCore;
+      const NOW = new Date(2026, 9, 17, 12, 0).getTime(); // 17 Oct 2026, local noon
+      const results = [];
+
+      function test(name, fn) {
+        try {
+          fn();
+          results.push({ name, ok: true });
+        } catch (error) {
+          results.push({ name, ok: false, message: error.message });
+        }
+      }
+
+      function equal(actual, expected) {
+        const a = JSON.stringify(actual);
+        const e = JSON.stringify(expected);
+        if (a !== e) throw new Error(`expected ${e} but got ${a}`);
+      }
+
+      const make = (over) =>
+        Object.assign(
+          { id: "a", text: "Task", done: false, createdAt: 1000, completedAt: null, priority: "medium", category: "", due: null },
+          over
+        );
+
+      /* Text ---------------------------------------------------------------- */
+      test("normalise collapses whitespace", () => equal(C.normalise("  a   b \n c "), "a b c"));
+      test("normalise handles missing values", () => equal(C.normalise(undefined), ""));
+      test("validateText rejects empty text", () => equal(C.validateText("") !== "", true));
+      test("validateText rejects over-long text", () => equal(C.validateText("x".repeat(141)) !== "", true));
+      test("validateText accepts the maximum length", () => equal(C.validateText("x".repeat(140)), ""));
+      test("validateCategory rejects over-long categories", () => equal(C.validateCategory("x".repeat(21)) !== "", true));
+
+      /* Dates --------------------------------------------------------------- */
+      test("parseDue accepts a real date", () => equal(C.parseDue("2026-10-17"), new Date(2026, 9, 17).getTime()));
+      test("parseDue rejects 30 February", () => equal(C.parseDue("2026-02-30"), null));
+      test("parseDue rejects the wrong format", () => equal(C.parseDue("17/10/2026"), null));
+      test("parseDue rejects non-strings", () => equal(C.parseDue(20261017), null));
+      test("dueInfo: no date", () => equal(C.dueInfo(null, false, NOW).status, "none"));
+      test("dueInfo: overdue", () => equal(C.dueInfo("2026-10-16", false, NOW), { status: "overdue", label: "Overdue by 1 day" }));
+      test("dueInfo: overdue plural", () => equal(C.dueInfo("2026-10-14", false, NOW).label, "Overdue by 3 days"));
+      test("dueInfo: today", () => equal(C.dueInfo("2026-10-17", false, NOW), { status: "today", label: "Due today" }));
+      test("dueInfo: tomorrow", () => equal(C.dueInfo("2026-10-18", false, NOW), { status: "soon", label: "Due tomorrow" }));
+      test("dueInfo: this week", () => equal(C.dueInfo("2026-10-20", false, NOW), { status: "soon", label: "Due in 3 days" }));
+      test("dueInfo: later", () => equal(C.dueInfo("2026-11-30", false, NOW).status, "later"));
+      test("dueInfo: completed tasks are never overdue", () => equal(C.dueInfo("2026-10-01", true, NOW).status, "done"));
+
+      /* Items --------------------------------------------------------------- */
+      test("createItem normalises and defaults fields", () => {
+        const item = C.createItem({ text: "  Buy   milk ", priority: "nope", category: "  Home ", due: "bad" }, 5, "id1");
+        equal(item, { id: "id1", text: "Buy milk", done: false, createdAt: 5, completedAt: null, priority: "medium", category: "Home", due: null });
+      });
+      test("sanitizeItem upgrades a version 1 item", () => {
+        const legacy = { id: "x", text: "Old task", done: false, createdAt: 1, completedAt: null };
+        equal(C.sanitizeItem(legacy), { id: "x", text: "Old task", done: false, createdAt: 1, completedAt: null, priority: "medium", category: "", due: null });
+      });
+      test("sanitizeItem rejects broken data", () => {
+        equal(C.sanitizeItem({ id: "x", text: 5, done: false, createdAt: 1, completedAt: null }), null);
+        equal(C.sanitizeItem(null), null);
+        equal(C.sanitizeItem({ id: "x", text: "   ", done: false, createdAt: 1, completedAt: null }), null);
+      });
+      test("sanitizeList drops invalid items and duplicate ids", () => {
+        const list = [make({ id: "a" }), make({ id: "a" }), { nope: true }, make({ id: "b" })];
+        equal(C.sanitizeList(list).map((i) => i.id), ["a", "b"]);
+      });
+      test("sanitizeList tolerates non-arrays", () => equal(C.sanitizeList("nope"), []));
+
+      /* Filtering and sorting ---------------------------------------------- */
+      test("matches searches text and category", () => {
+        const item = make({ text: "Write report", category: "Work" });
+        equal(C.matches(item, { query: "report" }), true);
+        equal(C.matches(item, { query: "work" }), true);
+        equal(C.matches(item, { query: "gym" }), false);
+      });
+      test("matches filters by priority and category", () => {
+        const item = make({ priority: "high", category: "Study" });
+        equal(C.matches(item, { query: "", priority: "high", category: "study" }), true);
+        equal(C.matches(item, { query: "", priority: "low", category: "all" }), false);
+        equal(C.matches(item, { query: "", priority: "all", category: "Home" }), false);
+      });
+      test("sortPending newest puts recent tasks first", () => {
+        const list = [make({ id: "old", createdAt: 1 }), make({ id: "new", createdAt: 9 })];
+        equal(C.sortPending(list, "newest").map((i) => i.id), ["new", "old"]);
+      });
+      test("sortPending due puts soonest first and undated last", () => {
+        const list = [
+          make({ id: "none", createdAt: 3 }),
+          make({ id: "late", due: "2026-12-01", createdAt: 2 }),
+          make({ id: "soon", due: "2026-10-18", createdAt: 1 }),
+        ];
+        equal(C.sortPending(list, "due").map((i) => i.id), ["soon", "late", "none"]);
+      });
+      test("sortPending priority orders high to low", () => {
+        const list = [make({ id: "l", priority: "low" }), make({ id: "h", priority: "high" }), make({ id: "m", priority: "medium" })];
+        equal(C.sortPending(list, "priority").map((i) => i.id), ["h", "m", "l"]);
+      });
+      test("sortPending does not change the original array", () => {
+        const list = [make({ id: "a", createdAt: 1 }), make({ id: "b", createdAt: 2 })];
+        C.sortPending(list, "newest");
+        equal(list.map((i) => i.id), ["a", "b"]);
+      });
+      test("sortDone puts the latest completion first", () => {
+        const list = [make({ id: "a", done: true, completedAt: 1 }), make({ id: "b", done: true, completedAt: 5 })];
+        equal(C.sortDone(list).map((i) => i.id), ["b", "a"]);
+      });
+      test("categories are unique, case-insensitive and sorted", () => {
+        const list = [make({ category: "work" }), make({ category: "Work" }), make({ category: "Home" }), make({ category: "" })];
+        equal(C.categories(list), ["Home", "work"]);
+      });
+
+      /* Stats --------------------------------------------------------------- */
+      test("stats counts pending, overdue, done today and percent", () => {
+        const list = [
+          make({ id: "1", due: "2026-10-10" }),
+          make({ id: "2" }),
+          make({ id: "3", done: true, completedAt: NOW }),
+          make({ id: "4", done: true, completedAt: NOW - 3 * 86400000 }),
+        ];
+        equal(C.stats(list, NOW), { total: 4, done: 2, pending: 2, overdue: 1, doneToday: 1, percent: 50 });
+      });
+      test("stats handles an empty list", () => equal(C.stats([], NOW).percent, 0));
+
+      /* Import / export ----------------------------------------------------- */
+      test("parseImport reads an exported file", () => {
+        const file = JSON.stringify({ app: "daybook", version: 2, items: [make({ id: "z" })] });
+        const result = C.parseImport(file);
+        equal(result.error, "");
+        equal(result.items.length, 1);
+      });
+      test("parseImport reads a bare array", () => equal(C.parseImport(JSON.stringify([make()])).items.length, 1));
+      test("parseImport reports invalid JSON", () => equal(C.parseImport("{oops").error !== "", true));
+      test("parseImport reports files without tasks", () => equal(C.parseImport("{}").error !== "", true));
+      test("parseImport reports files with no valid tasks", () => equal(C.parseImport("[{}]").error !== "", true));
+      test("mergeItems skips ids that already exist", () => {
+        const merged = C.mergeItems([make({ id: "a" })], [make({ id: "a" }), make({ id: "b" })]);
+        equal(merged.added, 1);
+        equal(merged.items.map((i) => i.id), ["a", "b"]);
+      });
+
+      /* Report -------------------------------------------------------------- */
+      const failed = results.filter((r) => !r.ok).length;
+      document.getElementById("summary").textContent =
+        failed === 0 ? `All ${results.length} tests passed.` : `${failed} of ${results.length} tests failed.`;
+      document.title = (failed === 0 ? "PASS" : "FAIL") + " | Daybook tests";
+
+      const list = document.getElementById("results");
+      results.forEach((r) => {
+        const li = document.createElement("li");
+        li.className = r.ok ? "pass" : "fail";
+        li.textContent = `${r.ok ? "Pass" : "Fail"}: ${r.name}`;
+        if (!r.ok) {
+          const detail = document.createElement("small");
+          detail.textContent = r.message;
+          li.append(detail);
+        }
+        list.append(li);
+      });
+    })();
+  </script>
+</body>
+</html>
